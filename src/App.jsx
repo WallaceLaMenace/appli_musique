@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
+// Importation des icônes nécessaires de lucide-react
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Heart, Shuffle, Repeat } from 'lucide-react';
 
-// Helper function to format time in MM:SS
+// Fonction utilitaire pour formater le temps en MM:SS
 const formatTime = (timeInSeconds) => {
   if (isNaN(timeInSeconds) || timeInSeconds === Infinity) {
     return '00:00';
@@ -13,33 +14,29 @@ const formatTime = (timeInSeconds) => {
 
 // Composant principal de l'application
 export default function App() {
-  // State pour la playlist
+  // États du composant
   const [playlist, setPlaylist] = useState([]);
-  // State pour l'index du morceau actuel
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
-  // State pour l'état de lecture
   const [isPlaying, setIsPlaying] = useState(false);
-  // State pour la durée totale du morceau
   const [duration, setDuration] = useState(0);
-  // State pour le temps de lecture actuel
   const [currentTime, setCurrentTime] = useState(0);
-  // State pour le volume (0 à 1)
-  const [volume, setVolume] = useState(0.75); // Default volume at 75%
-  // State pour l'état muet
+  const [volume, setVolume] = useState(0.75);
   const [isMuted, setIsMuted] = useState(false);
-  // State pour les erreurs
   const [error, setError] = useState(null);
-  // State pour le chargement initial
   const [isLoading, setIsLoading] = useState(true);
+  // NOUVEAU: État pour le "like" (juste visuel pour l'instant)
+  const [isLiked, setIsLiked] = useState(false);
+  // NOUVEAU: États pour shuffle/repeat (juste visuel pour l'instant)
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState('off'); // 'off', 'one', 'all'
 
-  // Référence à l'élément audio
+  // Références aux éléments DOM
   const audioRef = useRef(null);
-  // Référence à la barre de progression (input range)
   const progressBarRef = useRef(null);
 
   // --- Effets ---
 
-  // Load playlist on mount
+  // Chargement de la playlist au montage
   useEffect(() => {
     fetch('/playlist.json') // Assurez-vous que ce chemin est correct
       .then(response => {
@@ -52,8 +49,7 @@ export default function App() {
         if (data && data.length > 0) {
           setPlaylist(data);
         } else {
-          // Handle empty but valid JSON playlist
-           setPlaylist([]); // Set to empty array instead of throwing error immediately
+           setPlaylist([]);
            console.warn("La playlist est vide ou le format est incorrect.");
         }
         setIsLoading(false);
@@ -65,67 +61,90 @@ export default function App() {
       });
   }, []);
 
-  // Handle audio play/pause based on isPlaying state
+  // Gestion lecture/pause audio
    useEffect(() => {
     if (!audioRef.current || playlist.length === 0) return;
-
     const audioElement = audioRef.current;
-
     if (isPlaying) {
       audioElement.play().catch(playError => {
         console.error("Erreur lors de la lecture:", playError);
         setError(`Erreur de lecture: ${playError.message}`);
-        setIsPlaying(false); // Stop trying to play if it fails
+        setIsPlaying(false);
       });
     } else {
       audioElement.pause();
     }
-  }, [isPlaying, currentTrackIndex, playlist]); // Re-run if isPlaying or track changes
+  }, [isPlaying, currentTrackIndex, playlist]);
 
-   // Update audio volume when volume state changes
+   // Mise à jour du volume audio
    useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
 
+  // Mise à jour de la propriété 'loop' de l'élément audio pour le mode repeat 'one'
+  useEffect(() => {
+    if(audioRef.current) {
+        audioRef.current.loop = repeatMode === 'one';
+    }
+  }, [repeatMode]);
 
-  // --- Handlers ---
 
-  // Toggle play/pause state
+  // --- Gestionnaires (Handlers) ---
+
+  // Basculer Play/Pause
   const togglePlayPause = useCallback(() => {
     if (playlist.length === 0 || !playlist[currentTrackIndex]?.mp3) {
         setError("Aucun morceau à jouer ou fichier MP3 manquant.");
         return;
-    }; // Do nothing if playlist empty or no mp3 source
+    };
     setIsPlaying(prev => !prev);
   }, [playlist, currentTrackIndex]);
 
-  // Play next track
-  const playNextTrack = useCallback(() => {
+  // Morceau Suivant (logique de base, sans shuffle/repeat pour l'instant)
+  const handleNextTrackLogic = useCallback(() => {
     if (playlist.length === 0) return;
-    const newIndex = (currentTrackIndex + 1) % playlist.length;
-    setCurrentTrackIndex(newIndex);
-    // Reset time and potentially auto-play
+
+    if (isShuffle) {
+        // Logique Shuffle : choisir un index aléatoire différent de l'actuel
+        let randomIndex;
+        do {
+            randomIndex = Math.floor(Math.random() * playlist.length);
+        } while (playlist.length > 1 && randomIndex === currentTrackIndex);
+        setCurrentTrackIndex(randomIndex);
+    } else {
+        // Logique normale/repeat all
+        const newIndex = (currentTrackIndex + 1) % playlist.length;
+        setCurrentTrackIndex(newIndex);
+    }
+
+    // Reset time and keep playing state
     setCurrentTime(0);
     if (progressBarRef.current) progressBarRef.current.value = 0;
-    // Keep playing if it was already playing, otherwise stay paused
-    // setIsPlaying(true); // Uncomment to auto-play next track
-  }, [currentTrackIndex, playlist.length]);
+    // setIsPlaying(true); // Optionnel: forcer la lecture au changement
 
-  // Play previous track
+  }, [currentTrackIndex, playlist.length, isShuffle]);
+
+
+  // Morceau Précédent (logique de base)
   const playPrevTrack = useCallback(() => {
     if (playlist.length === 0) return;
-    const newIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
-    setCurrentTrackIndex(newIndex);
-     // Reset time and potentially auto-play
-    setCurrentTime(0);
-    if (progressBarRef.current) progressBarRef.current.value = 0;
-    // Keep playing if it was already playing, otherwise stay paused
-    // setIsPlaying(true); // Uncomment to auto-play previous track
+    // Si la lecture est > 3 secondes, redémarre le morceau actuel, sinon passe au précédent
+    if (audioRef.current && audioRef.current.currentTime > 3) {
+        audioRef.current.currentTime = 0;
+        setCurrentTime(0);
+        if (progressBarRef.current) progressBarRef.current.value = 0;
+    } else {
+        const newIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
+        setCurrentTrackIndex(newIndex);
+        setCurrentTime(0);
+        if (progressBarRef.current) progressBarRef.current.value = 0;
+    }
+    // setIsPlaying(true); // Optionnel: forcer la lecture
   }, [currentTrackIndex, playlist.length]);
 
-  // Update current time and progress bar as audio plays
+  // Mise à jour du temps courant pendant la lecture
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current) {
       const newTime = audioRef.current.currentTime;
@@ -136,7 +155,7 @@ export default function App() {
     }
   }, []);
 
-  // Update duration when audio metadata loads
+  // Mise à jour de la durée quand les métadonnées sont chargées
   const handleLoadedMetadata = useCallback(() => {
     if (audioRef.current) {
       const newDuration = audioRef.current.duration;
@@ -147,43 +166,52 @@ export default function App() {
     }
   }, []);
 
-  // Handle seeking when user interacts with progress bar
+  // Gestion du déplacement dans la barre de progression
   const handleProgressChange = (event) => {
     if (audioRef.current) {
       audioRef.current.currentTime = event.target.value;
-      setCurrentTime(event.target.value); // Update state immediately for responsiveness
+      setCurrentTime(event.target.value);
     }
   };
 
-   // Handle volume change from slider
+   // Gestion du changement de volume
   const handleVolumeChange = (event) => {
     const newVolume = parseFloat(event.target.value);
     setVolume(newVolume);
-    setIsMuted(newVolume === 0); // Mute if volume is set to 0
+    setIsMuted(newVolume === 0);
   };
 
-  // Toggle mute state
+  // Basculer Mute/Unmute
   const toggleMute = () => {
       setIsMuted(prev => !prev);
-      // If unmuting and volume was 0, set a default volume
       if (!isMuted && volume === 0) {
-          setVolume(0.5); // Set to 50% volume if unmuting from 0
+          setVolume(0.5);
       }
   };
 
-
-  // Go to next track when current one ends
+  // Gestion de la fin du morceau
   const handleTrackEnd = useCallback(() => {
-    playNextTrack();
-  }, [playNextTrack]);
+    // Ne passe au suivant que si on n'est pas en mode repeat 'one'
+    // (car si loop=true, l'événement 'ended' n'est pas censé se déclencher,
+    // mais sécurité supplémentaire)
+    if (repeatMode !== 'one') {
+        handleNextTrackLogic();
+    } else {
+        // Si repeat 'one', on remet juste le temps à 0 et on continue la lecture
+        // (normalement géré par l'attribut loop, mais au cas où)
+        if (audioRef.current) audioRef.current.currentTime = 0;
+        setIsPlaying(true); // Assure que ça continue de jouer
+    }
+  }, [handleNextTrackLogic, repeatMode]);
 
-  // Handle image loading errors
+
+  // Gestion des erreurs de chargement d'image
   const handleImageError = useCallback((e) => {
-    e.target.onerror = null; // Prevent infinite loops
-    e.target.src = 'https://placehold.co/300x300/374151/e5e7eb?text=Image+N/A'; // Darker placeholder
+    e.target.onerror = null;
+    e.target.src = 'https://placehold.co/300x300/1a1a1a/4ade80?text=Image+N/A'; // Placeholder sombre avec texte vert
   }, []);
 
-   // Handle audio element errors
+   // Gestion des erreurs de l'élément audio
    const handleAudioError = useCallback((e) => {
      console.error("Erreur de l'élément audio:", e);
      const trackSrc = playlist[currentTrackIndex]?.mp3 || 'Inconnu';
@@ -191,52 +219,74 @@ export default function App() {
      setIsPlaying(false);
    }, [currentTrackIndex, playlist]);
 
+   // NOUVEAU: Basculer Like (juste visuel)
+   const toggleLike = useCallback(() => {
+       setIsLiked(prev => !prev);
+       // Ici, on pourrait ajouter une logique pour sauvegarder l'état
+   }, []);
 
-  // --- Conditional Rendering ---
+   // NOUVEAU: Basculer Shuffle (juste visuel)
+   const toggleShuffle = useCallback(() => {
+       setIsShuffle(prev => !prev);
+   }, []);
+
+   // NOUVEAU: Changer le mode Repeat
+   const cycleRepeatMode = useCallback(() => {
+       setRepeatMode(prev => {
+           if (prev === 'off') return 'all'; // ou 'context' si on gérait une playlist
+           if (prev === 'all') return 'one';
+           return 'off';
+       });
+   }, []);
+
+
+  // --- Rendu Conditionnel ---
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 to-black text-gray-300">
-        Chargement de la playlist...
+      <div className="flex items-center justify-center min-h-screen bg-black text-gray-400">
+        Chargement...
       </div>
     );
   }
 
-  // Display generic error first if it exists
-  if (error && !playlist[currentTrackIndex]?.mp3) { // Show general error if critical (like no playlist)
+  if (error && !playlist[currentTrackIndex]?.mp3) {
       return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-red-900 text-white p-6 text-center">
           <h2 className="text-2xl font-bold mb-3">Erreur Critique</h2>
           <p>{error}</p>
-          <p className="mt-4 text-sm">Vérifiez votre fichier `playlist.json` et la console du navigateur.</p>
+          <p className="mt-4 text-sm">Vérifiez votre fichier `playlist.json` et la console.</p>
         </div>
       );
   }
 
-  // Handle case where playlist is loaded but empty
   if (playlist.length === 0 && !isLoading) {
      return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-gray-900 to-black text-gray-300 p-4 text-center">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-black text-gray-400 p-4 text-center">
         <h2 className="text-xl mb-2">Playlist Vide</h2>
-        <p>Ajoutez des morceaux dans `/public/playlist.json` pour commencer.</p>
+        <p>Ajoutez des morceaux dans `/public/playlist.json`.</p>
       </div>
     );
   }
 
-  // --- Main Render ---
+  // --- Rendu Principal ---
 
   const currentTrack = playlist[currentTrackIndex];
-  // Provide default values if track is somehow undefined briefly
   const title = currentTrack?.title || 'Titre inconnu';
   const artist = currentTrack?.artist || 'Artiste inconnu';
-  const imageUrl = currentTrack?.image || 'https://placehold.co/300x300/4b5563/e5e7eb?text=Musique';
+  // Utilisation d'un placeholder plus adapté au thème
+  const imageUrl = currentTrack?.image || 'https://placehold.co/300x300/1a1a1a/4ade80?text=Musique';
   const audioSrc = currentTrack?.mp3;
+
+  // Classes Tailwind pour le mode repeat actif
+  const repeatActiveClass = repeatMode !== 'off' ? 'text-green-500' : 'text-gray-400 hover:text-white';
+  const shuffleActiveClass = isShuffle ? 'text-green-500' : 'text-gray-400 hover:text-white';
 
 
   return (
-    // Main container with a nicer gradient background
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-gray-900 text-white p-4 font-sans">
-      {/* Audio element - remains hidden but functional */}
+    // Conteneur principal avec fond noir
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4 font-sans">
+      {/* Élément Audio caché */}
       <audio
         ref={audioRef}
         src={audioSrc}
@@ -244,141 +294,136 @@ export default function App() {
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onError={handleAudioError}
-        // volume is controlled via state/effect
-        // preload="metadata" // 'metadata' is usually enough and saves bandwidth
+        // loop={repeatMode === 'one'} // Géré via useEffect maintenant
       />
 
-      {/* Player card with glassmorphism effect (optional) and better padding */}
-      <div className="w-full max-w-md bg-gray-800 bg-opacity-70 backdrop-filter backdrop-blur-lg shadow-xl rounded-xl p-6 md:p-8">
+      {/* Carte du lecteur - Thème sombre, pas de transparence */}
+      <div className="w-full max-w-md bg-gray-900 shadow-xl rounded-lg p-6 md:p-8">
 
-        {/* Album Art */}
-        <div className="mb-5">
+        {/* Pochette d'album */}
+        <div className="mb-6">
           <img
-            key={currentTrackIndex} // Force re-render on track change
+            key={currentTrackIndex}
             src={imageUrl}
             alt={`Pochette pour ${title}`}
-            className="w-full h-auto object-cover rounded-lg shadow-lg aspect-square transition-all duration-300 ease-in-out"
+            className="w-full h-auto object-cover rounded shadow-md aspect-square" // Ombre plus subtile, coins moins arrondis
             onError={handleImageError}
           />
         </div>
 
-        {/* Track Info - Improved typography */}
-        <div className="text-center mb-5">
-          <h2 className="text-2xl font-bold truncate hover:text-clip" title={title}>
-            {title}
-          </h2>
-          <p className="text-base text-gray-400 truncate hover:text-clip" title={artist}>
-            {artist}
-          </p>
+        {/* Informations et Bouton Like - Disposition ajustée */}
+        <div className="flex justify-between items-center mb-4">
+            <div className="text-left overflow-hidden mr-4">
+              <h2 className="text-xl font-semibold truncate" title={title}>
+                {title}
+              </h2>
+              <p className="text-sm text-gray-400 truncate" title={artist}>
+                {artist}
+              </p>
+            </div>
+            {/* Bouton Like (visuel) */}
+            <button onClick={toggleLike} className="text-gray-400 hover:text-white focus:outline-none" aria-label="Aimer">
+                <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} className={isLiked ? 'text-green-500' : ''} />
+            </button>
         </div>
 
-        {/* Progress Bar - NEW */}
-        <div className="mb-5">
+
+        {/* Barre de progression - Style vert */}
+        <div className="mb-4">
            <input
             ref={progressBarRef}
             type="range"
             min="0"
-            max={duration || 0} // Set max when duration is known
+            max={duration || 0}
             value={currentTime}
-            onChange={handleProgressChange} // Allow user seeking
-            className="w-full h-2 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            onChange={handleProgressChange}
+            // Style mis à jour pour correspondre au thème vert
+            className="w-full h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer accent-green-500 hover:accent-green-400 disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Barre de progression"
             disabled={!audioSrc || duration === 0}
           />
-          {/* Time Display */}
-          <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
+          {/* Affichage du temps */}
+          <div className="flex justify-between text-xs text-gray-400 mt-1.5 px-0.5">
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
 
 
-        {/* Controls - Centered with adjusted spacing and improved button styles */}
-        <div className="flex justify-between items-center">
-           {/* Volume Control - NEW */}
-           <div className="flex items-center space-x-2 w-1/4">
-                <button onClick={toggleMute} className="text-gray-400 hover:text-white transition-colors" aria-label={isMuted ? "Activer le son" : "Couper le son"}>
-                    {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                </button>
-                <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    className="w-full h-1.5 bg-gray-600 rounded-full appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
-                    aria-label="Contrôle du volume"
-                 />
-           </div>
+        {/* Contrôles principaux - Disposition inspirée de la référence */}
+        <div className="flex justify-between items-center mb-4">
+            {/* Bouton Shuffle (visuel) */}
+            <button onClick={toggleShuffle} className={`${shuffleActiveClass} focus:outline-none`} aria-label="Lecture aléatoire">
+                <Shuffle size={20} />
+            </button>
 
-          {/* Main Playback Controls */}
-          <div className="flex items-center space-x-5">
-              {/* Previous Button */}
-              <button
-                onClick={playPrevTrack}
-                className="text-gray-300 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 rounded-full"
-                aria-label="Morceau précédent"
-                disabled={playlist.length <= 1 || !audioSrc}
-              >
-                <SkipBack size={28} />
-              </button>
+            {/* Bouton Précédent */}
+            <button
+              onClick={playPrevTrack}
+              className="text-gray-300 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
+              aria-label="Morceau précédent"
+              disabled={playlist.length <= 1 || !audioSrc}
+            >
+              <SkipBack size={28} fill="currentColor"/>
+            </button>
 
-              {/* Play/Pause Button - Enhanced style */}
-              <button
-                onClick={togglePlayPause}
-                className={`bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-full p-3 shadow-lg transition-all duration-200 ease-in-out transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${!audioSrc ? 'opacity-50 cursor-not-allowed' : ''}`}
-                aria-label={isPlaying ? 'Pause' : 'Lire'}
-                disabled={!audioSrc}
-              >
-                {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="relative left-[2px]" />} {/* Slight adjustment for Play icon centering */}
-              </button>
+            {/* Bouton Play/Pause - Style vert */}
+            <button
+              onClick={togglePlayPause}
+              className={`bg-white text-black rounded-full p-3 shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105 focus:outline-none ${!audioSrc ? 'opacity-50 cursor-not-allowed' : ''}`}
+              aria-label={isPlaying ? 'Pause' : 'Lire'}
+              disabled={!audioSrc}
+            >
+              {isPlaying ? <Pause size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="relative left-[2px]" />}
+            </button>
 
-              {/* Next Button */}
-              <button
-                onClick={playNextTrack}
-                className="text-gray-300 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 rounded-full"
-                aria-label="Morceau suivant"
-                disabled={playlist.length <= 1 || !audioSrc}
-              >
-                <SkipForward size={28} />
-              </button>
-          </div>
+            {/* Bouton Suivant */}
+            <button
+              onClick={handleNextTrackLogic} // Utilise la nouvelle logique
+              className="text-gray-300 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
+              aria-label="Morceau suivant"
+              disabled={playlist.length <= 1 || !audioSrc}
+            >
+              <SkipForward size={28} fill="currentColor"/>
+            </button>
 
-          {/* Placeholder for potential future controls (like shuffle/repeat) - keeps layout balanced */}
-          <div className="w-1/4"></div>
-
+            {/* Bouton Repeat (visuel) */}
+            <button onClick={cycleRepeatMode} className={`${repeatActiveClass} focus:outline-none relative`} aria-label="Répéter">
+                <Repeat size={20} />
+                {/* Indicateur pour 'repeat one' */}
+                {repeatMode === 'one' && (
+                    <span className="absolute -top-1 -right-1 bg-green-500 text-black text-[8px] font-bold w-3 h-3 flex items-center justify-center rounded-full">1</span>
+                )}
+            </button>
         </div>
 
-        {/* Audio Error Display (if occurs during playback) */}
-        {error && audioSrc && ( // Only show playback errors here
-          <p className="text-red-400 text-center text-xs mt-4 px-2">{error}</p>
+        {/* Contrôle du Volume - Déplacé en bas */}
+         <div className="flex items-center space-x-2">
+            <button onClick={toggleMute} className="text-gray-400 hover:text-white transition-colors" aria-label={isMuted ? "Activer le son" : "Couper le son"}>
+                {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-full h-1 bg-gray-700 rounded-full appearance-none cursor-pointer accent-green-500 hover:accent-green-400"
+                aria-label="Contrôle du volume"
+             />
+       </div>
+
+
+        {/* Affichage des erreurs */}
+        {error && audioSrc && (
+          <p className="text-red-500 text-center text-xs mt-4 px-2">{error}</p>
         )}
       </div>
 
-       {/* Optional Playlist Display (Uncomment to activate) */}
-      {/*
-      <div className="w-full max-w-md mt-6">
-        <h3 className="text-lg font-semibold mb-2 text-center text-gray-300">Playlist</h3>
-        <ul className="bg-gray-800 bg-opacity-70 backdrop-filter backdrop-blur-lg rounded-lg p-2 max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-700">
-          {playlist.map((track, index) => (
-            <li
-              key={track.id || index} // Use a unique ID if available in playlist.json
-              className={`p-2 my-1 rounded cursor-pointer flex justify-between items-center transition-colors duration-150 ${index === currentTrackIndex ? 'bg-indigo-600 bg-opacity-80 text-white' : 'hover:bg-gray-700 text-gray-300'}`}
-              onClick={() => {
-                  setCurrentTrackIndex(index);
-                  // Optional: Auto-play when clicking a track in the list
-                  // setIsPlaying(true);
-              }}
-            >
-              <span>{track.title || 'Titre inconnu'} - <span className="text-gray-400">{track.artist || 'Artiste inconnu'}</span></span>
-              {index === currentTrackIndex && isPlaying && <Play size={16} className="animate-pulse text-green-400" />}
-               {index === currentTrackIndex && !isPlaying && <Pause size={16} className="text-gray-500"/>}
-            </li>
-          ))}
-        </ul>
-      </div>
-      */}
+       {/* Playlist Optionnelle (style à adapter si décommentée) */}
+      {/* ... (code de la playlist ici, nécessiterait un style adapté au thème vert/noir) ... */}
+
     </div>
   );
 }
